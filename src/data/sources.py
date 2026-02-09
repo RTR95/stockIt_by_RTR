@@ -447,6 +447,23 @@ class YahooFinanceSource:
         if not yf:
             return None
         
+        # Special handling for NIFTY index
+        if symbol.upper() == 'NIFTY':
+            try:
+                ticker = yf.Ticker("^NSEI")
+                info = ticker.info
+                if info and (info.get('regularMarketPrice') or info.get('currentPrice')):
+                    return {
+                        'symbol': 'NIFTY',
+                        'name': 'Nifty 50',
+                        'current_price': info.get('currentPrice', info.get('regularMarketPrice', 0)),
+                        'fifty_two_week_high': info.get('fiftyTwoWeekHigh'),
+                        'fifty_two_week_low': info.get('fiftyTwoWeekLow'),
+                        'source': 'yahoo_finance_index'
+                    }
+            except Exception:
+                pass
+        
         for suffix in ['.NS', '.BO']:
             try:
                 ticker = yf.Ticker(f"{symbol}{suffix}")
@@ -486,9 +503,17 @@ class YahooFinanceSource:
         if not yf:
             return None
         
-        for suffix in ['.NS', '.BO']:
+        # Special handling for NIFTY index
+        target_symbols = []
+        if symbol.upper() == 'NIFTY':
+            target_symbols.append(('^NSEI', 'yahoo_finance_index'))
+        else:
+            for suffix in ['.NS', '.BO']:
+                target_symbols.append((f"{symbol}{suffix}", f"yahoo_finance{suffix}"))
+        
+        for ticker_symbol, source_name in target_symbols:
             try:
-                ticker = yf.Ticker(f"{symbol}{suffix}")
+                ticker = yf.Ticker(ticker_symbol)
                 df = ticker.history(period=f"{years}y")
                 
                 if df.empty:
@@ -507,7 +532,7 @@ class YahooFinanceSource:
                         df['date'] = pd.to_datetime(df['date'])
                     
                     df['symbol'] = symbol
-                    df['source'] = f'yahoo_finance{suffix}'
+                    df['source'] = source_name
                     
                     required = ['date', 'open', 'high', 'low', 'close', 'volume', 'source']
                     if all(c in df.columns for c in required):
@@ -515,7 +540,7 @@ class YahooFinanceSource:
                         return df[required]
                         
             except Exception as e:
-                logger.debug(f"Yahoo price failed for {symbol}{suffix}: {e}")
+                logger.debug(f"Yahoo price failed for {ticker_symbol}: {e}")
                 continue
         
         return None
