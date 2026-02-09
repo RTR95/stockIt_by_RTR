@@ -1,0 +1,19 @@
+============================= test session starts =============================
+platform win32 -- Python 3.10.11, pytest-9.0.2, pluggy-1.6.0
+rootdir: E:\Projects\stockIt_by_RTR
+collected 0 items / 1 error
+
+=================================== ERRORS ====================================
+__________ ERROR collecting tests/analysis/test_signal_generator.py ___________
+ImportError while importing test module 'E:\Projects\stockIt_by_RTR\tests\analysis\test_signal_generator.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\rajth\AppData\Local\Programs\Python\Python310\lib\importlib\__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+tests\analysis\test_signal_generator.py:4: in <module>
+    from .test_utils import (
+E   ImportError: attempted relative import with no known parent package
+=========================== short test summary info ===========================
+ERROR tests/analysis/test_signal_generator.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+============================== 1 error in 0.52s ===============================

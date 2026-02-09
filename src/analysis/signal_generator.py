@@ -8,6 +8,14 @@ from dataclasses import dataclass
 import logging
 
 from ..utils.config import get_config, get_signal_weights, get_risk_profile
+from ..utils.sector_config import get_sector_rules
+from .red_flags import RedFlag
+from ..engine.governance import GovernanceScore
+from ..engine.financial import FinancialScore
+from ..engine.valuation import ValuationScore
+from ..engine.market import MarketBehaviourScore as MarketScore
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +70,14 @@ class SignalGenerator:
         self.hold_threshold = get_config('signals.hold_threshold', 45)  # Lowered from 50
         self.avoid_threshold = get_config('signals.avoid_threshold', 30)
     
-    def generate_signal(self, user_profile: UserProfile, governance_score, financial_score,
-                        valuation_score, market_score, ml_context=None, red_flags: List[Dict] = None) -> SignalResult:
+    def generate_signal(self, user_profile: UserProfile, 
+                       governance_score: GovernanceScore,
+                       financial_score: FinancialScore,
+                       valuation_score: ValuationScore,
+                       market_score: MarketScore,
+                       sector: str = None,
+                       ml_context: Optional[Any] = None,
+                       red_flags: List[Dict] = None) -> SignalResult:
         red_flags = red_flags or []
         
         dimension_scores = {
@@ -74,7 +88,7 @@ class SignalGenerator:
         }
         
         # Calculate composite score with quality-weighted approach
-        composite = self._calculate_composite(dimension_scores, financial_score, governance_score)
+        composite = self._calculate_composite(governance_score, financial_score, valuation_score, market_score, red_flags, sector)
         
         # Apply user profile adjustments
         adjusted, profile_match = self._apply_profile(composite, user_profile, financial_score, 
@@ -102,11 +116,18 @@ class SignalGenerator:
             warnings_count=self._count_warnings(governance_score, financial_score, valuation_score, market_score)
         )
     
-    def _calculate_composite(self, scores: Dict[str, float], fin, gov) -> float:
+    def _calculate_composite(self, gov, fin, val, mkt, red_flags: List, sector: Optional[str]) -> float:
         """
         Calculate composite score with quality-weighted approach.
         Quality companies (high ROCE, good governance) get bonus points.
         """
+        scores = {
+            'governance': gov.overall_score,
+            'financial': fin.overall_score,
+            'valuation': val.overall_score,
+            'market_behaviour': mkt.overall_score
+        }
+        
         base_score = sum(scores[d] * self.weights.get(d, 0.25) for d in scores)
         
         # Quality bonus for high-quality businesses
@@ -143,7 +164,8 @@ class SignalGenerator:
         
         # Calculate estimated return potential
         # Components: Earnings growth + Dividend yield + PE expansion/contraction potential
-        earnings_growth = fin.pat_cagr_5y or fin.revenue_cagr_5y or 10
+        # Components: Earnings growth + Dividend yield + PE expansion/contraction potential
+        earnings_growth = fin.pat_cagr_5y if fin.pat_cagr_5y is not None else (fin.revenue_cagr_5y if fin.revenue_cagr_5y is not None else 10)
         
         # Estimate dividend yield (from details if available)
         div_yield = fin.details.get('dividend_yield', 1.5) if fin.details else 1.5

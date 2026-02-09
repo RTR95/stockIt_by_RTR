@@ -26,6 +26,7 @@ class FinancialScore:
     roce_current: Optional[float]
     roce_avg_5y: Optional[float]
     roce_consistency: float
+    roa_current: Optional[float] # Added for BFSI/Banks
     fcf_yield: Optional[float]
     earnings_quality: float
     debt_to_equity: Optional[float]
@@ -65,9 +66,11 @@ class FinancialAnalyzer:
         profit = self._analyze_profitability(income_stmt)
         details['profitability'] = profit
         
-        # ROCE
+        # ROCE & ROA
         roce = self._analyze_roce(income_stmt, balance_sheet)
+        roa = self._analyze_roa(income_stmt, balance_sheet)
         details['roce'] = roce
+        details['roa'] = roa
         if roce['current'] and roce['current'] < self.min_roce:
             warnings.append(f"Low ROCE: {roce['current']:.1f}%")
         
@@ -112,7 +115,8 @@ class FinancialAnalyzer:
             revenue_cagr_5y=revenue['cagr_5y'], revenue_cagr_10y=revenue['cagr_10y'],
             pat_cagr_3y=profit['pat_cagr_3y'], pat_cagr_5y=profit['pat_cagr_5y'],
             roce_current=roce['current'], roce_avg_5y=roce['avg_5y'],
-            roce_consistency=roce['consistency'], fcf_yield=cashflow['fcf_yield'],
+            roce_consistency=roce['consistency'], roa_current=roa['current'], 
+            fcf_yield=cashflow['fcf_yield'],
             earnings_quality=cashflow['earnings_quality'],
             debt_to_equity=leverage['debt_to_equity'], margin_trend=margins['trend'],
             details=details, warnings=warnings, red_flags=red_flags,
@@ -220,8 +224,61 @@ class FinancialAnalyzer:
         except Exception as e:
             logger.debug(f"ROCE calculation error: {e}")
             return {'current': None, 'avg_5y': None, 'consistency': 0, 'score': 50}
-    
-    def _get_ebit(self, income_stmt: pd.DataFrame) -> Optional[pd.Series]:
+    def _analyze_roa(self, income_stmt: pd.DataFrame, balance_sheet: pd.DataFrame) -> Dict:
+        """Calculate Return on Assets (ROA) = Net Income / Total Assets."""
+        if income_stmt.empty or balance_sheet.empty:
+            return {'current': None, 'score': 50}
+        
+        try:
+            # Net Income
+            net_income_cols = ['Net Income', 'Profit After Tax', 'PAT', 'Net Profit']
+            net_income = None
+            for col in net_income_cols:
+                if col in income_stmt.columns:
+                    net_income = income_stmt[col]
+                    break
+            
+            # Total Assets
+            total_assets_cols = ['Total Assets', 'Total Asset']
+            total_assets = None
+            for col in total_assets_cols:
+                if col in balance_sheet.columns:
+                    total_assets = balance_sheet[col]
+                    break
+            
+            if net_income is None or total_assets is None:
+                return {'current': None, 'score': 50}
+            
+            common_idx = net_income.index.intersection(total_assets.index)
+            if len(common_idx) == 0:
+                return {'current': None, 'score': 50}
+            
+            roa_series = (net_income.loc[common_idx] / total_assets.loc[common_idx].replace(0, np.nan)) * 100
+            roa_series = roa_series.dropna().sort_index()
+            
+            if roa_series.empty:
+                return {'current': None, 'score': 50}
+            
+            current_roa = float(roa_series.iloc[-1])
+            avg_5y = float(roa_series.tail(5).mean()) if len(roa_series) >= 2 else current_roa
+            
+            # Score ROA (Simple scoring)
+            score = 50
+            if current_roa > 15: score += 40
+            elif current_roa > 10: score += 30
+            elif current_roa > 5: score += 15
+            elif current_roa > 0: score += 5
+            else: score -= 10
+            
+            return {
+                'current': round(current_roa, 2),
+                'avg_5y': round(avg_5y, 2),
+                'score': score
+            }
+            
+        except Exception as e:
+            logger.debug(f"ROA calculation error: {e}")
+            return {'current': None, 'score': 50}
         """Extract EBIT from income statement."""
         ebit_cols = ['EBIT', 'Operating Income', 'Operating Profit', 'Earnings Before Interest And Taxes']
         
