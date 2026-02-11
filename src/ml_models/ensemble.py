@@ -417,8 +417,12 @@ class MLEnsemble:
         else:
             # No classifier - use rule-based
             prediction.ml_signal = current_signal
-            prediction.ml_confidence = current_confidence
-            prediction.ml_score = current_confidence * 100
+            # Normalize confidence if it's on 0-100 scale
+            if current_confidence > 1.0:
+                prediction.ml_confidence = current_confidence / 100.0
+            else:
+                prediction.ml_confidence = current_confidence
+            prediction.ml_score = prediction.ml_confidence * 100
         
         # Step 4: Generate explanation
         if self._explainer and feature_set:

@@ -24,6 +24,7 @@ class ExplainabilityReport:
     data_quality_notes: List[str]
     ml_explanation: Optional[str] = None
     shap_contributions: Optional[Dict[str, Any]] = None
+    external_context: Optional[str] = None
 
 
 class SHAPExplainer:
@@ -337,10 +338,13 @@ class ExplainabilityEngine:
                              governance_score, financial_score, valuation_score, market_score,
                              stock_info: Dict[str, Any], red_flags: List[Dict] = None,
                              ml_features: pd.DataFrame = None,
-                             prediction_class: int = None) -> ExplainabilityReport:
+                             prediction_class: int = None,
+                             external_context: str = None) -> ExplainabilityReport:
         red_flags = red_flags or []
         
         summary = self._generate_summary(signal_result, stock_info, user_profile)
+        if external_context:
+            summary += f"\n\nContext: {external_context}"
         signal_explanation = self._explain_signal(signal_result)
         why_not_buy = self._generate_why_not_buy(user_profile, governance_score, financial_score,
                                                    valuation_score, market_score, signal_result, red_flags)
@@ -381,7 +385,7 @@ class ExplainabilityEngine:
             confidence_factors=confidence, dimension_breakdown=breakdown, risk_factors=risks,
             thesis_invalidators=invalidators, user_profile_analysis=profile_analysis,
             data_quality_notes=data_notes, ml_explanation=ml_explanation,
-            shap_contributions=shap_contributions
+            shap_contributions=shap_contributions, external_context=external_context
         )
     
     def _generate_summary(self, result: SignalResult, info: Dict, profile: UserProfile) -> str:
@@ -412,7 +416,7 @@ class ExplainabilityEngine:
         # Return gap - only if significant
         ret = result.user_profile_match.get('return_expectation', {})
         if not ret.get('meets', True) and ret.get('gap', 0) > 3:
-            reasons.append(f"RETURN GAP: You expect {ret['expected']}% but estimated return is {ret['estimated']}% (gap: {ret['gap']}%)")
+            reasons.append(f"RETURN GAP: You expect {ret['expected']}% but estimated future return is {ret['estimated']}% (gap: {ret['gap']}%) based on fundamentals")
         
         # Risk mismatch - only if significant
         risk = result.user_profile_match.get('risk_match', {})
@@ -473,6 +477,10 @@ class ExplainabilityEngine:
         if mkt.volatility_regime in ['high', 'extreme']:
             reasons.append(f"HIGH VOLATILITY: Currently in {mkt.volatility_regime} volatility regime ({mkt.volatility_1y:.0f}% annual)")
         
+        # Price trend vs Fundamental Signal divergence
+        if result.signal in [Signal.AVOID, Signal.SELL] and mkt.trend_30d == 'bullish':
+             reasons.append("TREND TRAP: Price is rising (bullish trend) but fundamentals signal AVOID. This often indicates a speculative rally without substance.")
+        
         if mkt.beta and mkt.beta > 1.5:
             reasons.append(f"HIGH BETA: Beta of {mkt.beta:.2f} - stock moves 1.5x the market")
         elif mkt.beta and mkt.beta > 1.3:
@@ -494,8 +502,13 @@ class ExplainabilityEngine:
         return reasons
     
     def _analyze_confidence(self, result: SignalResult) -> Dict:
+        # Normalize confidence to 0-1 range for display if needed
+        conf_val = result.confidence
+        if conf_val > 1.0:
+            conf_val = conf_val / 100.0
+            
         return {
-            'overall': result.confidence,
+            'overall': conf_val,
             'strengthening': [f for f in ['No red flags'] if result.red_flags_count == 0],
             'weakening': [f"{result.red_flags_count} red flags" for _ in [1] if result.red_flags_count > 0]
         }

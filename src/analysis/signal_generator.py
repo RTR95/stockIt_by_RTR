@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import logging
 
 from ..utils.config import get_config, get_signal_weights, get_risk_profile
+from ..utils.sectors import get_sector_thresholds
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,8 @@ class SignalGenerator:
         self.avoid_threshold = get_config('signals.avoid_threshold', 30)
     
     def generate_signal(self, user_profile: UserProfile, governance_score, financial_score,
-                        valuation_score, market_score, ml_context=None, red_flags: List[Dict] = None) -> SignalResult:
+                        valuation_score, market_score, ml_context=None, red_flags: List[Dict] = None,
+                        sector: str = None) -> SignalResult:
         red_flags = red_flags or []
         
         dimension_scores = {
@@ -74,11 +76,14 @@ class SignalGenerator:
         }
         
         # Calculate composite score with quality-weighted approach
-        composite = self._calculate_composite(dimension_scores, financial_score, governance_score)
+        composite = self._calculate_composite(dimension_scores, financial_score, governance_score, sector)
         
         # Apply user profile adjustments
         adjusted, profile_match = self._apply_profile(composite, user_profile, financial_score, 
                                                        valuation_score, market_score)
+        
+        # Augment red flags with composite interactions
+        red_flags = self._augment_red_flags(red_flags, financial_score, governance_score)
         
         # Apply red flag penalties (but don't over-penalize)
         penalty = self._calculate_penalty(red_flags)
@@ -87,7 +92,7 @@ class SignalGenerator:
         # Determine signal with quality considerations
         signal, confidence = self._determine_signal(
             final_score, red_flags, governance_score, financial_score, 
-            valuation_score, profile_match, dimension_scores
+            valuation_score, profile_match, dimension_scores, sector
         )
         
         reasoning = self._generate_reasoning(signal, user_profile, dimension_scores, profile_match, red_flags)
@@ -102,7 +107,7 @@ class SignalGenerator:
             warnings_count=self._count_warnings(governance_score, financial_score, valuation_score, market_score)
         )
     
-    def _calculate_composite(self, scores: Dict[str, float], fin, gov) -> float:
+    def _calculate_composite(self, scores: Dict[str, float], fin, gov, sector: str = None) -> float:
         """
         Calculate composite score with quality-weighted approach.
         Quality companies (high ROCE, good governance) get bonus points.
@@ -112,12 +117,23 @@ class SignalGenerator:
         # Quality bonus for high-quality businesses
         quality_bonus = 0
         
-        # ROCE > 15% indicates quality business
-        roce = fin.roce_current
-        if roce and roce > 20:
-            quality_bonus += 8
-        elif roce and roce > 15:
-            quality_bonus += 5
+        # Get sector thresholds
+        thresholds = get_sector_thresholds(sector)
+        metric = thresholds.get('roce_metric', 'roce')
+        min_val = thresholds.get('min_roce', 15)
+        high_val = thresholds.get('high_roce', 20)
+        
+        # Check metric (ROCE or ROA)
+        if metric == 'roa':
+            val = fin.roa_current
+        else:
+            val = fin.roce_current
+            
+        if val:
+            if val > high_val:
+                quality_bonus += 8
+            elif val > min_val:
+                quality_bonus += 5
         
         # Strong governance
         if gov.overall_score >= 70:
@@ -212,6 +228,37 @@ class SignalGenerator:
         
         return adjusted, match
     
+    def _augment_red_flags(self, red_flags: List[Dict], fin, gov) -> List[Dict]:
+        """Add composite red flags based on interactions."""
+        augmented = red_flags.copy()
+        
+        # Check for Rising Debt + Declining CFO/Margins
+        rising_debt = any("increasing" in w.lower() and "debt" in w.lower() for w in fin.warnings) or \
+                      (fin.debt_to_equity and fin.debt_to_equity > 1.0)
+        
+        declining_cfo = any("poor earnings quality" in f.lower() for f in fin.red_flags) or \
+                        (fin.earnings_quality and fin.earnings_quality < 0.7)
+                        
+        if rising_debt and declining_cfo:
+            augmented.append({
+                'type': 'COMPOSITE',
+                'description': 'Rising Debt with Weak Cash Flows',
+                'severity': 'high'
+            })
+            
+        # Governance + Financial Weakness
+        weak_gov = gov.overall_score < 50
+        weak_fin = fin.overall_score < 50
+        
+        if weak_gov and weak_fin:
+             augmented.append({
+                'type': 'COMPOSITE',
+                'description': 'Double Trouble: Weak Governance & Financials',
+                'severity': 'critical'
+            })
+            
+        return augmented
+
     def _calculate_penalty(self, red_flags: List[Dict]) -> float:
         """Calculate penalty for red flags - more nuanced approach."""
         if not red_flags:
@@ -231,7 +278,7 @@ class SignalGenerator:
         return min(40, total_penalty)
     
     def _determine_signal(self, score: float, red_flags: List, gov, fin, val, 
-                          profile_match: Dict, dimension_scores: Dict) -> Tuple[str, float]:
+                          profile_match: Dict, dimension_scores: Dict, sector: str = None) -> Tuple[str, float]:
         """
         Determine signal based on comprehensive analysis.
         
@@ -251,8 +298,18 @@ class SignalGenerator:
         if gov.overall_score < 30 and fin.overall_score < 30:
             return Signal.SELL, 80.0
         
-        # Quality indicators
-        is_quality = fin.roce_current and fin.roce_current > 15 and gov.overall_score >= 55
+        # Quality indicators (Sector aware)
+        thresholds = get_sector_thresholds(sector)
+        metric = thresholds.get('roce_metric', 'roce')
+        min_val = thresholds.get('min_roce', 15)
+        
+        if metric == 'roa':
+            val = fin.roa_current
+        else:
+            val = fin.roce_current
+            
+        is_quality = val and val > min_val and gov.overall_score >= 55
+        
         meets_return = profile_match.get('return_expectation', {}).get('meets', False)
         within_risk = profile_match.get('risk_match', {}).get('within_tolerance', True)
         

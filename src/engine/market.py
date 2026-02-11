@@ -27,6 +27,7 @@ class MarketBehaviourScore:
     vs_nifty_3y: Optional[float]
     vs_nifty_5y: Optional[float]
     volatility_regime: str
+    trend_30d: str  # Added field
     details: Dict[str, Any]
     warnings: List[str]
 
@@ -83,6 +84,13 @@ class MarketBehaviourAnalyzer:
         # Sharpe Ratio
         sharpe = self._calculate_sharpe(df, cutoff_date)
         
+        # Trend Analysis
+        trend_30d = 'neutral'
+        if not df.empty and len(df) > 30:
+             p_curr = float(df['close'].iloc[-1])
+             p_30d_ago = float(df['close'].iloc[-30])
+             trend_30d = 'bullish' if p_curr > p_30d_ago * 1.05 else 'bearish' if p_curr < p_30d_ago * 0.95 else 'neutral'
+
         overall = self._calculate_score(dd['score'], recovery['score'], vol['score'], 
                                          beta['score'], relative['score'])
         
@@ -92,6 +100,7 @@ class MarketBehaviourAnalyzer:
             volatility_3y=vol['annual_3y'], beta=beta['beta'], sharpe_ratio=sharpe,
             vs_nifty_1y=relative['vs_nifty_1y'], vs_nifty_3y=relative['vs_nifty_3y'],
             vs_nifty_5y=relative['vs_nifty_5y'], volatility_regime=vol['regime'],
+            trend_30d=trend_30d,
             details=details, warnings=warnings
         )
     
@@ -100,7 +109,7 @@ class MarketBehaviourAnalyzer:
             overall_score=50, max_drawdown=0, avg_recovery_months=None,
             volatility_1y=None, volatility_3y=None, beta=None, sharpe_ratio=None,
             vs_nifty_1y=None, vs_nifty_3y=None, vs_nifty_5y=None,
-            volatility_regime='unknown', details={}, warnings=['Insufficient data']
+            volatility_regime='unknown', trend_30d='neutral', details={}, warnings=['Insufficient data']
         )
     
     def _analyze_drawdown(self, prices: pd.Series) -> Dict:

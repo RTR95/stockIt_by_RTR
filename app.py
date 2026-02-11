@@ -31,6 +31,7 @@ from src.analysis.signal_generator import SignalGenerator, UserProfile, Signal
 from src.analysis.explainability import ExplainabilityEngine
 from src.analysis.red_flags import RedFlagDetector
 from src.analysis.buffett import BuffettAnalyzer
+from src.utils.web_search import WebSearch
 from src.features.time_travel import TimeTravelEngine
 from src.features.scenario_simulator import ScenarioSimulator
 from src.ui.components import render_user_profile, render_signal_badge, render_why_not_buy, render_red_flags, render_dimension_scores, render_footer
@@ -544,6 +545,7 @@ class IndianEquityIntelligence:
         self.explainer = ExplainabilityEngine()
         self.red_flag = RedFlagDetector()
         self.buffett = BuffettAnalyzer()
+        self.web_search = WebSearch()
         self.time_travel = TimeTravelEngine()
         self.scenario_sim = ScenarioSimulator()
         self.macro_provider = get_macro_provider()
@@ -666,6 +668,15 @@ class IndianEquityIntelligence:
             # Run ML-enhanced analysis if enabled and available
             ml_prediction = None
             ml_skip_reason = None
+            
+            # Fetch news context (optional, can be async or parallelized in future)
+            news_context = None
+            if self.config.get('features', {}).get('enable_news', True):
+                try:
+                    news_context = self.web_search.get_stock_news(symbol, info.get('name', ''))
+                except Exception as e:
+                    logger.debug(f"News fetch failed: {e}")
+
             if enable_ml and self._ml_enabled and self.ml_ensemble and self._ml_initialized:
                 try:
                     macro_data = None
@@ -740,6 +751,7 @@ class IndianEquityIntelligence:
                     if ml_prediction and ml_prediction.success
                     else None
                 ),
+                external_context=news_context
             )
             
             return {

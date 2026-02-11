@@ -253,40 +253,52 @@ class LocalDataSource:
 
         return None
 
-    def get_financials(self, symbol: str) -> Optional[Dict[str, pd.DataFrame]]:
-        """Get financial statements from local storage (if available)."""
+    def get_financials(self, symbol: str) -> Dict[str, pd.DataFrame]:
+        """Get financial statements."""
         fin_file = FINANCIALS_DIR / f"{symbol}.json"
-        if not fin_file.exists():
-            return None
-        try:
-            with open(fin_file) as f:
-                payload = json.load(f)
-            result = {"source": payload.get("source", "local_file")}
-            for key in ["income_statement", "balance_sheet", "cash_flow"]:
-                data = payload.get(key)
-                if data and isinstance(data, dict) and data.get("data") is not None:
-                    df = pd.DataFrame(data.get("data"), columns=data.get("columns"))
-                    idx = data.get("index")
-                    if idx is not None:
-                        df.index = idx
-                    df = self._normalize_financial_df(df)
-                    result[key] = df
-                else:
-                    result[key] = pd.DataFrame()
-            div_payload = payload.get("dividends")
-            if div_payload and isinstance(div_payload, dict):
-                div_index = div_payload.get("index") or []
-                div_values = div_payload.get("values") or []
-                if len(div_index) == len(div_values) and div_index:
-                    div_series = pd.Series(div_values, index=pd.to_datetime(div_index))
-                    result["dividends"] = div_series.sort_index()
-                else:
-                    result["dividends"] = pd.Series(dtype=float)
-            else:
-                result["dividends"] = pd.Series(dtype=float)
-            return result
-        except Exception as e:
-            logger.debug(f"Error reading financials for {symbol}: {e}")
+        
+        # Try loading from local file
+        if fin_file.exists():
+            try:
+                with open(fin_file) as f:
+                    payload = json.load(f)
+                
+                # Check if we have valid data (not just nulls)
+                has_data = any(payload.get(k) is not None for k in ["income_statement", "balance_sheet", "cash_flow"])
+                
+                # If we have data, return what we have
+                if has_data:
+                    result = {"source": payload.get("source", "local_file")}
+                    for key in ["income_statement", "balance_sheet", "cash_flow"]:
+                        data = payload.get(key)
+                        if data and isinstance(data, dict) and data.get("data") is not None:
+                            df = pd.DataFrame(data.get("data"), columns=data.get("columns"))
+                            idx = data.get("index")
+                            if idx is not None:
+                                df.index = idx
+                            df = self._normalize_financial_df(df)
+                            result[key] = df
+                        else:
+                            result[key] = pd.DataFrame()
+                    div_payload = payload.get("dividends")
+                    if div_payload and isinstance(div_payload, dict):
+                        div_index = div_payload.get("index") or []
+                        div_values = div_payload.get("values") or []
+                        if len(div_index) == len(div_values) and div_index:
+                            div_series = pd.Series(div_values, index=pd.to_datetime(div_index))
+                            result["dividends"] = div_series.sort_index()
+                        else:
+                            result["dividends"] = pd.Series(dtype=float)
+                    else:
+                        result["dividends"] = pd.Series(dtype=float)
+                    return result
+                
+                # If no data and online, fall through to fetch fresh
+                logger.info(f"Cached financials for {symbol} are empty, re-fetching...")
+                
+            except Exception as e:
+                logger.debug(f"Error reading financials for {symbol}: {e}")
+
         return None
 
     @staticmethod
@@ -889,6 +901,14 @@ class DataSourceManager:
         
         if cache_key in self._price_cache:
             self._price_cache.delete(cache_key)
+        
+        # Clear financials cache file to force re-fetch
+        fin_file = FINANCIALS_DIR / f"{symbol}.json"
+        if fin_file.exists():
+            try:
+                fin_file.unlink()
+            except Exception as e:
+                logger.warning(f"Failed to delete financials cache for {symbol}: {e}")
         
         # Refresh local files from Yahoo Finance (gap fill)
         try:

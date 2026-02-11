@@ -18,6 +18,7 @@ class BuffettRuleResult:
     threshold: str
     notes: str = ""
     counts_for_score: bool = True
+    weight: int = 1
 
     @property
     def status(self) -> str:
@@ -68,6 +69,7 @@ class BuffettAnalyzer:
             passed=self._passes_ratio_lt(debt_to_equity, 0.5),
             value_display=self._fmt_ratio(debt_to_equity),
             threshold="< 0.5",
+            weight=2,
         ))
 
         current_ratio = self._current_ratio(balance_sheet)
@@ -104,6 +106,7 @@ class BuffettAnalyzer:
             passed=self._passes_ratio_gt(icr, 5),
             value_display=self._fmt_ratio(icr, suffix="x"),
             threshold="> 5x",
+            weight=2,
         ))
 
         # Trend filters
@@ -115,6 +118,7 @@ class BuffettAnalyzer:
             value_display=roe_result[1],
             threshold="Avg > 8%, Min > 5%",
             notes=roe_result[2],
+            weight=2,
         ))
 
         book_growth = self._book_value_growth(balance_sheet)
@@ -164,7 +168,7 @@ class BuffettAnalyzer:
         rules.extend(moat_proxies)
 
         score, total = self._score_rules(rules)
-        approved = score >= 8
+        approved = score >= (total * 0.8) # 80% pass rate required
         return BuffettAnalysisResult(score=score, total_points=total, approved=approved, rules=rules)
 
     def _rule(
@@ -176,6 +180,7 @@ class BuffettAnalyzer:
         threshold: str,
         notes: str = "",
         counts_for_score: bool = True,
+        weight: int = 1,
     ) -> BuffettRuleResult:
         return BuffettRuleResult(
             name=name,
@@ -185,11 +190,12 @@ class BuffettAnalyzer:
             threshold=threshold,
             notes=notes,
             counts_for_score=counts_for_score,
+            weight=weight,
         )
 
     def _score_rules(self, rules: List[BuffettRuleResult]) -> Tuple[int, int]:
-        total = sum(1 for r in rules if r.counts_for_score)
-        score = sum(1 for r in rules if r.counts_for_score and r.passed)
+        total = sum(r.weight for r in rules if r.counts_for_score)
+        score = sum(r.weight for r in rules if r.counts_for_score and r.passed)
         return score, total
 
     def _get_series(self, df: pd.DataFrame, columns: List[str]) -> Optional[pd.Series]:
