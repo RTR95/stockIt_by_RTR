@@ -106,7 +106,7 @@ ml_config:
   models_dir: models
   device: auto
   forecaster:
-    model: chronos-t5-small
+    model: chronos-t5-base
     horizon_days: 30
     num_samples: 100
   classifier:
@@ -119,7 +119,7 @@ ml_config:
     walk_forward_splits: 5
     use_risk_adjusted_target: true
   explainer:
-    model: qwen2.5-3b
+    model: null
     context_length: 2048
     temperature: 0.7
     use_shap: true
