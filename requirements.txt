@@ -27,7 +27,7 @@ shap>=0.42.0  # SHAP explainability for ML models
 fredapi>=0.5.0  # FRED API for macro data (crude oil, etc.)
 
 # LLM
-llama-cpp-python>=0.2.0
+# llama-cpp-python>=0.2.0  # Installed in Dockerfile for GPU support
 huggingface_hub>=0.19.0
 
 # Visualization
