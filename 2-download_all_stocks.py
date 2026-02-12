@@ -357,15 +357,19 @@ def _is_financials_cache_valid(path: Path) -> bool:
             payload = json.load(f)
         if not isinstance(payload, dict):
             return False
+        
+        # Check for at least one statement with data
+        valid_statements = 0
         for key in ["income_statement", "balance_sheet", "cash_flow"]:
             block = payload.get(key)
-            if not isinstance(block, dict):
-                return False
-            cols = block.get("columns") or []
-            data = block.get("data") or []
-            if len(cols) < 2 or len(data) < 2:
-                return False
-        return True
+            if isinstance(block, dict):
+                cols = block.get("columns") or []
+                data = block.get("data") or []
+                # Relaxed check: just need some data, even 1 year is better than nothing
+                if len(cols) >= 1 and len(data) >= 1:
+                    valid_statements += 1
+        
+        return valid_statements >= 1
     except Exception:
         return False
 
@@ -547,26 +551,55 @@ def download_stock_data(
 
                     # Optional: download financial statements for offline analysis
                     if include_financials:
-                        time.sleep(0.3)
+                        time.sleep(0.5) # Increased delay
                         try:
-                            income_stmt = ticker.financials.T if ticker.financials is not None else None
-                            balance_sheet = ticker.balance_sheet.T if ticker.balance_sheet is not None else None
-                            cash_flow = ticker.cashflow.T if ticker.cashflow is not None else None
+                            # Fetch with retries
+                            income_stmt = None
+                            for _ in range(2):
+                                try:
+                                    income_stmt = ticker.financials
+                                    if income_stmt is not None and not income_stmt.empty:
+                                        break
+                                    time.sleep(1)
+                                    # Re-initialize ticker to clear cache/state
+                                    ticker = yf.Ticker(f"{symbol}{suffix}")
+                                except:
+                                    time.sleep(1)
+                            
+                            # Transpose if valid
+                            income_stmt = income_stmt.T if income_stmt is not None and not income_stmt.empty else None
+                            
+                            # Get others
+                            balance_sheet = ticker.balance_sheet
+                            balance_sheet = balance_sheet.T if balance_sheet is not None and not balance_sheet.empty else None
+                            
+                            cash_flow = ticker.cashflow
+                            cash_flow = cash_flow.T if cash_flow is not None and not cash_flow.empty else None
+                            
                             dividends = ticker.dividends
-                            payload = {
-                                "symbol": symbol,
-                                "downloaded_at": datetime.now().isoformat(),
-                                "income_statement": _df_to_payload(income_stmt),
-                                "balance_sheet": _df_to_payload(balance_sheet),
-                                "cash_flow": _df_to_payload(cash_flow),
-                                "dividends": _series_to_payload(dividends),
-                                "source": f"yahoo{suffix}",
-                            }
-                            fin_file = FINANCIALS_DIR / f"{symbol}.json"
-                            with open(fin_file, "w") as f:
-                                json.dump(payload, f, indent=2)
-                            result['financials'] = True
-                        except Exception:
+                            
+                            # Only save if we have at least income statement or balance sheet
+                            if income_stmt is not None or balance_sheet is not None:
+                                payload = {
+                                    "symbol": symbol,
+                                    "downloaded_at": datetime.now().isoformat(),
+                                    "income_statement": _df_to_payload(income_stmt),
+                                    "balance_sheet": _df_to_payload(balance_sheet),
+                                    "cash_flow": _df_to_payload(cash_flow),
+                                    "dividends": _series_to_payload(dividends),
+                                    "source": f"yahoo{suffix}",
+                                }
+                                fin_file = FINANCIALS_DIR / f"{symbol}.json"
+                                with open(fin_file, "w") as f:
+                                    json.dump(payload, f, indent=2)
+                                result['financials'] = True
+                            else:
+                                # If we failed to get financials, we don't save an empty file.
+                                # This allows the 'missing_financials' logic to correctly identify it later.
+                                pass
+                                
+                        except Exception as e:
+                            # logger.debug(f"Financials download failed for {symbol}: {e}")
                             pass
                     
                     result['success'] = True
@@ -644,8 +677,8 @@ def download_all(symbols: list, workers: int = 2, resume: bool = False, include_
     total_records = 0
     failed_symbols = []
     
-    # Limit workers to avoid rate limiting (max 3)
-    workers = min(workers, 3)
+    # Limit workers to avoid rate limiting (max 5)
+    workers = min(workers, 5)
     
     logger.info(f"Starting download of {total} stocks with {workers} workers")
     logger.info(f"Fetching {YEARS_OF_DATA} years of historical data per stock")
@@ -1175,7 +1208,7 @@ def main():
     print(f"Historical data: {YEARS_OF_DATA} years per stock")
     
     # Limit workers to avoid rate limiting
-    workers = min(args.workers, 3)
+    workers = min(args.workers, 5)
     print(f"Parallel workers: {workers} (limited to avoid rate limiting)")
     
     # More realistic estimate with rate limiting

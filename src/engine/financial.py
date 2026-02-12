@@ -24,6 +24,7 @@ class FinancialScore:
     pat_cagr_3y: Optional[float]
     pat_cagr_5y: Optional[float]
     roce_current: Optional[float]
+    roa_current: Optional[float]
     roce_avg_5y: Optional[float]
     roce_consistency: float
     fcf_yield: Optional[float]
@@ -70,6 +71,10 @@ class FinancialAnalyzer:
         details['roce'] = roce
         if roce['current'] and roce['current'] < self.min_roce:
             warnings.append(f"Low ROCE: {roce['current']:.1f}%")
+            
+        # ROA (for Banks/NBFCs context)
+        roa = self._analyze_return_on_assets(income_stmt, balance_sheet)
+        details['roa'] = roa
         
         # Cash Flow
         cashflow = self._analyze_cashflow(cash_flow, income_stmt, stock_info)
@@ -111,7 +116,7 @@ class FinancialAnalyzer:
             overall_score=overall_score, revenue_cagr_3y=revenue['cagr_3y'],
             revenue_cagr_5y=revenue['cagr_5y'], revenue_cagr_10y=revenue['cagr_10y'],
             pat_cagr_3y=profit['pat_cagr_3y'], pat_cagr_5y=profit['pat_cagr_5y'],
-            roce_current=roce['current'], roce_avg_5y=roce['avg_5y'],
+            roce_current=roce['current'], roa_current=roa['current'], roce_avg_5y=roce['avg_5y'],
             roce_consistency=roce['consistency'], fcf_yield=cashflow['fcf_yield'],
             earnings_quality=cashflow['earnings_quality'],
             debt_to_equity=leverage['debt_to_equity'], margin_trend=margins['trend'],
@@ -164,6 +169,60 @@ class FinancialAnalyzer:
         
         return {'pat_cagr_3y': cagr_3y, 'pat_cagr_5y': cagr_5y, 'score': score}
     
+    def _analyze_return_on_assets(self, income_stmt: pd.DataFrame, balance_sheet: pd.DataFrame) -> Dict:
+        """
+        Calculate Return on Assets (ROA).
+        ROA = Net Income / Total Assets
+        """
+        if income_stmt.empty or balance_sheet.empty:
+            return {'current': None, 'avg_5y': None, 'score': 50}
+        
+        try:
+            # Get Net Income
+            pat_cols = ['Net Income', 'Profit After Tax', 'PAT', 'Net Profit']
+            net_income = None
+            for col in pat_cols:
+                if col in income_stmt.columns:
+                    net_income = income_stmt[col].dropna()
+                    break
+            
+            if net_income is None:
+                return {'current': None, 'avg_5y': None, 'score': 50}
+
+            # Get Total Assets
+            total_assets_cols = ['Total Assets', 'Total Asset']
+            total_assets = None
+            for col in total_assets_cols:
+                if col in balance_sheet.columns:
+                    total_assets = balance_sheet[col].dropna()
+                    break
+            
+            if total_assets is None:
+                return {'current': None, 'avg_5y': None, 'score': 50}
+            
+            common_idx = net_income.index.intersection(total_assets.index)
+            if len(common_idx) == 0:
+                return {'current': None, 'avg_5y': None, 'score': 50}
+            
+            roa_series = (net_income.loc[common_idx] / total_assets.loc[common_idx].replace(0, np.nan)) * 100
+            roa_series = roa_series.dropna().sort_index()
+            
+            if roa_series.empty:
+                return {'current': None, 'avg_5y': None, 'score': 50}
+            
+            current_roa = float(roa_series.iloc[-1])
+            avg_5y = float(roa_series.tail(5).mean()) if len(roa_series) >= 2 else current_roa
+            
+            return {
+                'current': round(current_roa, 2),
+                'avg_5y': round(avg_5y, 2),
+                'score': 50 # Placeholder, not used for scoring directly yet
+            }
+            
+        except Exception as e:
+            logger.debug(f"ROA calculation error: {e}")
+            return {'current': None, 'avg_5y': None, 'score': 50}
+
     def _analyze_roce(self, income_stmt: pd.DataFrame, balance_sheet: pd.DataFrame) -> Dict:
         """
         Calculate Return on Capital Employed (ROCE).

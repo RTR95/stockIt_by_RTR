@@ -276,11 +276,11 @@ class ValuationAnalyzer:
     
     def _calculate_stress(self, pe: Dict, pb: Dict, ev_ebitda: Dict) -> str:
         indicators = 0
-        if pe.get('percentile_own', 0) > 80:
+        if pe.get('percentile_own') is not None and pe['percentile_own'] > 80:
             indicators += 2
-        if pe.get('current', 0) and pe['current'] > 50:
+        if pe.get('current') is not None and pe['current'] > 50:
             indicators += 2
-        if pb.get('percentile_own', 0) > 80:
+        if pb.get('percentile_own') is not None and pb['percentile_own'] > 80:
             indicators += 1
         
         return 'extreme' if indicators >= 4 else 'high' if indicators >= 2 else 'neutral' if indicators >= 1 else 'low'
