@@ -98,7 +98,9 @@ The system is containerized for stability and reproducibility.
 > We strongly recommend running Stocron via Docker to avoid dependency hell.
 
 ### Prerequisites
-Docker Desktop installed and running.
+
+1. Docker Desktop installed and running.
+2. If you have an NVIDIA GPU installed on your PC, open the docker-compose.yml file and refer to line 35 for GPU acceleration configuration.
 
 ```bash
 # 1) Clone
@@ -109,24 +111,24 @@ cd stockIt_by_RTR
 docker-compose up -d --build
 
 # 3) Download missing live symbols (recommended)
-docker-compose exec stocron-by-rtr python 2-download_all_stocks.py --with-financials
+docker exec -it stocron-by-rtr python 2-download_all_stocks.py --with-financials
 
 # If you don't want Warren Buffet's scoring, just download stock info without financials
-docker-compose exec stocron-by-rtr python 2-download_all_stocks.py
+docker exec -it stocron-by-rtr python 2-download_all_stocks.py
 
 # 4) Delisted stocks (recommended for survivorship bias)
-docker-compose exec stocron-by-rtr python scripts/download_delisted_stocks.py --export
-docker-compose exec stocron-by-rtr python scripts/download_delisted_stocks.py --download --years 30
-docker-compose exec stocron-by-rtr python 2-download_all_stocks.py --build-db-only
+docker exec -it stocron-by-rtr python scripts/download_delisted_stocks.py --export
+docker exec -it stocron-by-rtr python scripts/download_delisted_stocks.py --download --years 30
+docker exec -it stocron-by-rtr python 2-download_all_stocks.py --build-db-only
 
 # 5) (Optional) Enable real crude oil data
 export FRED_API_KEY="your_fred_api_key"
 
 # 6) Download ML models (optional; required for ML forecaster/explainer)
-docker-compose exec stocron-by-rtr python 3-download_models.py
+docker exec -it stocron-by-rtr python 3-download_models.py
 
 # 7) Train classifier (required for ML signals)
-docker-compose exec stocron-by-rtr python 4-train_classifier.py
+docker exec -it stocron-by-rtr python 4-train_classifier.py
 
 Open👉 http://localhost:8501
 

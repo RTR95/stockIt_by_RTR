@@ -11,18 +11,39 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     STREAMLIT_SERVER_ADDRESS=0.0.0.0
 
 # Install system dependencies
+# git is needed for some pip installs
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first (for better caching)
 COPY requirements.txt .
 
 # Install Python dependencies
+# We install torch first to get the nvidia libs (on x86_64)
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir streamlit
+
+# Install llama-cpp-python with GPU support if x86_64
+# We use the pre-built wheel for CUDA 12.1 on Linux x86_64
+# On ARM64 (Mac), we install the standard wheel (CPU/Metal)
+# Note: Metal support in Docker is limited, so this runs on CPU for Mac
+RUN if [ "$(uname -m)" = "x86_64" ]; then \
+        echo "Detected x86_64 (Linux/Windows). Installing llama-cpp-python with CUDA support..."; \
+        pip install --no-cache-dir llama-cpp-python \
+        --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121; \
+    else \
+        echo "Detected ARM64 (Mac/Other). Installing standard llama-cpp-python (CPU)..."; \
+        pip install --no-cache-dir llama-cpp-python; \
+    fi
+
+# Set LD_LIBRARY_PATH to include torch's nvidia libs (for x86_64)
+# This allows llama-cpp-python to find cuBLAS etc. without system CUDA
+# These paths exist only if torch installed the nvidia wheels (which it does on x86_64 Linux)
+ENV LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib/python3.11/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.11/site-packages/nvidia/cudnn/lib
 
 # Optional: do not fail build if this install fails
 RUN pip install --no-cache-dir jugaad-data --no-deps || true
