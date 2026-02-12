@@ -159,8 +159,11 @@ Notes:
 - If you want to refresh a subset, use --refresh-symbol with comma-separated tickers.
 
 ### 2. RTR's recommended ML list
-I use *chronos-t5-base* for forecaster, *CatBoost* for classifier with **NO LLM** for Explainer.
-This is a weekend project and I haven't designed the tool for GPU acceleration. So LLM will run on CPU which would be a lot slower (10 to 15mins per stock). If you still want, go for it.
+~I use *chronos-t5-base* for forecaster, *CatBoost* for classifier with **NO LLM** for Explainer.~
+~This is a weekend project and I haven't designed the tool for GPU acceleration. So LLM will run on CPU which would be a lot slower (10 to 15mins per stock). If you still want, go for it.~
+
+GPU Acceleration is now DONE! You may choose any LLM.
+I use *chronos-t5-base* for forecaster, *CatBoost* for classifier with **Qwen2.5-3B** for LLM Explainer.
 
 ### 3. How accurate are the predictions? What's the backtest performance?
 Stocron is a research tool, not a promise of returns. It focuses on long-horizon regime awareness and survivorship-aware testing rather than headline accuracy. Performance varies by period, sector, and macro regime. Use the time-travel engine to validate your own strategy across decades, including bad regimes and delisted stocks.
